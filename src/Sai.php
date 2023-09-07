@@ -4,7 +4,6 @@ namespace Assistent\Sai\src;
 
 include_once __DIR__.'/../../../../app/Principles/Principles.php';
 
-use GuzzleHttp\Client;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 use App\Principles\Principles;
@@ -20,7 +19,7 @@ class Sai
     private $max_token;
     private $principles = [];
 
-    private $client;
+    private $curl;
 
     public function __construct($config, $apiKey = null,$model,$max_token)
     {
@@ -31,19 +30,24 @@ class Sai
         $this->model = $model;
         $this->max_token = $max_token;
 
-        $this->client = new Client([
-            'base_uri' => 'https://api.openai.com',
-            'headers' => [
-                'Content-Type' => 'application/json',
-                'Authorization' => 'Bearer '.$this->apiKey,
-            ],
-        ]);;
+        $this->curl = curl_init();
+        curl_setopt($this->curl, CURLOPT_URL, 'https://api.openai.com/v1/chat/completions');
+        curl_setopt($this->curl, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($this->curl, CURLOPT_POST, true);
+        curl_setopt($this->curl, CURLOPT_HTTPHEADER, [
+            'Content-Type: application/json',
+            'Authorization: Bearer ' . $this->apiKey,
+        ]);
+    }
+
+    public function __destruct()
+    {
+        curl_close($this->curl);
     }
 
     public function call(Request $request)
     {
         $inputText = $request->input('message');
-
 
         if($this->validationWords($inputText)){
             $generatedText = 'Lo siento como asistente no puedo realizar esa funcion, desea ayuda con algo mas?';
@@ -52,7 +56,6 @@ class Sai
             $method = $this->botNatural($request);
 
             if(!$method){
-
 
                 $data = [
                     'max_tokens' =>  intval($this->max_token),
@@ -79,7 +82,6 @@ class Sai
                 );
 
                 $generatedText = $this->requestChatGpt($data);
-
 
             }else{
                 $instacie = '\\App\\Directives\\Methods\\'.$method;
@@ -109,17 +111,12 @@ class Sai
 
     public function requestChatGpt($data)
     {
-        $response = $this->client->post('/v1/chat/completions', [
-            'json' => $data,
-        ]);
-
-        $responseBody = json_decode($response->getBody());
-
+        curl_setopt($this->curl, CURLOPT_POSTFIELDS, json_encode($data));
+        $response = curl_exec($this->curl);
+        $responseBody = json_decode($response);
         $generatedText = $responseBody->choices[0]->message->content;
-
         return $generatedText;
     }
-
 
     public function botNatural($request)
     {
@@ -151,8 +148,6 @@ class Sai
         return ($highestPercent > $sensitivity) ? $bestMethod : false;
     }
 
-
-
     private function validationWords($input) {
         foreach ($this->wordsBlocks as $word) {
             if (Str::contains($input, $word)) {
@@ -166,5 +161,4 @@ class Sai
         $similarity = similar_text($inputText, $compareText, $percent);
         return $percent;
     }
-
 }
